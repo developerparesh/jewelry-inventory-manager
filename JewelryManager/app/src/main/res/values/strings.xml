@@ -1,0 +1,23 @@
+<resources>
+    <string name="app_name">Jewelry Manager</string>
+    <string name="item_name">Item Name</string>
+    <string name="price">Price</string>
+    <string name="quantity">Quantity</string>
+    <string name="save_item">Save Item</string>
+    <string name="delete_item">Delete Item</string>
+    <string name="add_item">Add Item</string>
+    <string name="low_stock">LOW STOCK</string>
+    <string name="quantity_label">Qty: %1$d</string>
+    <string name="price_format">$%1$.2f</string>
+    <string name="sku_format">SKU: %1$s</string>
+    <string name="carat_format">%1$.2f ct</string>
+    <string name="not_applicable">N/A</string>
+    <string name="delete_item_title">Delete Item</string>
+    <string name="delete_item_message">Are you sure you want to delete %1$s?</string>
+    <string name="yes">Yes</string>
+    <string name="no">No</string>
+    <string name="export_pdf">Export PDF</string>
+    <string name="exporting_pdf">Exporting PDF...</string>
+    <string name="pdf_exported">PDF Exported to Downloads</string>
+    <string name="pdf_export_failed">PDF Export Failed</string>
+</resources>
