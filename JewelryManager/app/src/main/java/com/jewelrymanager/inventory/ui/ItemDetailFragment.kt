@@ -40,8 +40,8 @@ class ItemDetailFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        val id = navigationArgs.itemId
-        viewModel.getItem(id).observe(this.viewLifecycleOwner) { selectedItem ->
+        val sku = navigationArgs.itemSku
+        viewModel.getItem(sku).observe(this.viewLifecycleOwner) { selectedItem ->
             if (selectedItem != null) {
                 item = selectedItem
                 bind(item)
@@ -67,10 +67,11 @@ class ItemDetailFragment : Fragment() {
             itemNotes.text = item.notes
 
             editFab.setOnClickListener {
-                val bundle = Bundle().apply {
-                    putInt("itemId", item.id)
-                }
-                findNavController().navigate(com.jewelrymanager.inventory.R.id.addEditFragment, bundle)
+                val action = ItemDetailFragmentDirections.actionItemDetailFragmentToAddEditFragment(
+                    itemSku = item.sku,
+                    title = getString(R.string.save_item)
+                )
+                findNavController().navigate(action)
             }
 
             deleteButton.setOnClickListener {

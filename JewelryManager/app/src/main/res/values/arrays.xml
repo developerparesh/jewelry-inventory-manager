@@ -17,6 +17,8 @@
         <item>Price (High to Low)</item>
         <item>Quantity (Low to High)</item>
         <item>Quantity (High to Low)</item>
+        <item>Newest First</item>
+        <item>Oldest First</item>
     </string-array>
 
     <string-array name="special_filters">

@@ -59,7 +59,7 @@ class InventoryAdapter(private val onItemClicked: (JewelryItem) -> Unit) :
     companion object {
         private val DiffCallback = object : DiffUtil.ItemCallback<JewelryItem>() {
             override fun areItemsTheSame(oldItem: JewelryItem, newItem: JewelryItem): Boolean {
-                return oldItem.id == newItem.id
+                return oldItem.sku == newItem.sku
             }
 
             override fun areContentsTheSame(oldItem: JewelryItem, newItem: JewelryItem): Boolean {

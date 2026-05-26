@@ -16,7 +16,16 @@
         <action
             android:id="@+id/action_inventoryListFragment_to_itemDetailFragment"
             app:destination="@id/itemDetailFragment" />
+        <action
+            android:id="@+id/action_inventoryListFragment_to_barcodeScanFragment"
+            app:destination="@id/barcodeScanFragment" />
     </fragment>
+
+    <fragment
+        android:id="@+id/barcodeScanFragment"
+        android:name="com.jewelrymanager.inventory.ui.BarcodeScanFragment"
+        android:label="Scan Barcode"
+        tools:layout="@layout/fragment_barcode_scan" />
 
     <fragment
         android:id="@+id/itemDetailFragment"
@@ -24,8 +33,8 @@
         android:label="Item Detail"
         tools:layout="@layout/fragment_item_detail">
         <argument
-            android:name="itemId"
-            app:argType="integer" />
+            android:name="itemSku"
+            app:argType="string" />
         <action
             android:id="@+id/action_itemDetailFragment_to_addEditFragment"
             app:destination="@id/addEditFragment" />
@@ -37,9 +46,10 @@
         android:label="{title}"
         tools:layout="@layout/fragment_add_edit">
         <argument
-            android:name="itemId"
-            android:defaultValue="-1"
-            app:argType="integer" />
+            android:name="itemSku"
+            android:defaultValue="@null"
+            app:argType="string"
+            app:nullable="true" />
         <argument
             android:name="title"
             app:argType="string" />

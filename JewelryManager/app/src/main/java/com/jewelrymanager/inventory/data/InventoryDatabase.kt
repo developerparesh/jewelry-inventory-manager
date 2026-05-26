@@ -10,7 +10,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-@Database(entities = [JewelryItem::class], version = 1, exportSchema = false)
+@Database(entities = [JewelryItem::class, Transaction::class], version = 2, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class InventoryDatabase : RoomDatabase() {
 

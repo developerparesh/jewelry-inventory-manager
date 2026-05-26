@@ -2,19 +2,20 @@ package com.jewelrymanager.inventory.data
 
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
+import java.math.BigDecimal
 
 @Dao
 interface InventoryDao {
     @Query("SELECT * FROM jewelry_items ORDER BY name ASC")
     fun getAllItems(): Flow<List<JewelryItem>>
 
-    @Query("SELECT * FROM jewelry_items WHERE id = :id")
-    fun getItem(id: Int): Flow<JewelryItem>
+    @Query("SELECT * FROM jewelry_items WHERE sku = :sku")
+    fun getItem(sku: String): Flow<JewelryItem?>
 
-    @Query("SELECT * FROM jewelry_items WHERE id = :id")
-    suspend fun getItemSingle(id: Int): JewelryItem?
+    @Query("SELECT * FROM jewelry_items WHERE sku = :sku")
+    suspend fun getItemSingle(sku: String): JewelryItem?
 
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(item: JewelryItem)
 
     @Update
@@ -22,4 +23,16 @@ interface InventoryDao {
 
     @Delete
     suspend fun delete(item: JewelryItem)
+
+    @Query("SELECT * FROM jewelry_items WHERE sku = :sku")
+    fun getItemBySku(sku: String): Flow<JewelryItem?>
+
+    @Insert
+    suspend fun insertTransaction(transaction: Transaction)
+
+    @Query("SELECT * FROM transactions ORDER BY timestamp DESC")
+    fun getAllTransactions(): Flow<List<Transaction>>
+
+    @Query("SELECT SUM(quantity * priceAtTime) FROM transactions WHERE type = 'EXIT'")
+    fun getTotalSales(): Flow<BigDecimal?>
 }

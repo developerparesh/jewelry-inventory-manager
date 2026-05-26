@@ -6,8 +6,7 @@ import java.math.BigDecimal
 
 @Entity(tableName = "jewelry_items")
 data class JewelryItem(
-    @PrimaryKey(autoGenerate = true)
-    val id: Int = 0,
+    @PrimaryKey
     val sku: String,
     val name: String,
     val category: String,
@@ -18,5 +17,6 @@ data class JewelryItem(
     val retailPrice: BigDecimal,
     val location: String,
     val notes: String,
+    val dateAdded: Long = System.currentTimeMillis(),
     val imageUri: String? = null
 )

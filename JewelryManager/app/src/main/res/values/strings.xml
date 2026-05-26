@@ -20,4 +20,14 @@
     <string name="exporting_pdf">Exporting PDF...</string>
     <string name="pdf_exported">PDF Exported to Downloads</string>
     <string name="pdf_export_failed">PDF Export Failed</string>
+    <string name="scan_barcode">Scan Barcode</string>
+    <string name="camera_permission_denied">Camera permission is required to scan barcodes</string>
+    <string name="transaction_title">Inventory Movement</string>
+    <string name="transaction_message">Scanned SKU: %1$s\nSelect movement type:</string>
+    <string name="entry">Entry (Stock In)</string>
+    <string name="exit">Exit (Stock Out/Sale)</string>
+    <string name="quantity_prompt">Enter quantity:</string>
+    <string name="total_sales_label">Total Sales: %1$s</string>
+    <string name="export_sales_report">Sales Report</string>
+    <string name="export_full_report">Full Report</string>
 </resources>

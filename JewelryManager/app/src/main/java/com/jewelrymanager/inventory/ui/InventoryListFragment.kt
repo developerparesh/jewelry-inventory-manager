@@ -1,6 +1,8 @@
 package com.jewelrymanager.inventory.ui
 
+import android.Manifest
 import android.content.ContentValues
+import android.content.pm.PackageManager
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -11,19 +13,29 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.text.Editable
 import android.text.TextWatcher
+import androidx.core.content.ContextCompat
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import com.jewelrymanager.inventory.JewelryApplication
 import com.jewelrymanager.inventory.data.JewelryItem
+import com.jewelrymanager.inventory.data.Transaction
+import com.jewelrymanager.inventory.data.TransactionType
 import com.jewelrymanager.inventory.databinding.FragmentInventoryListBinding
+import com.jewelrymanager.inventory.util.NotificationHelper
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.math.BigDecimal
 import java.io.FileOutputStream
 import java.io.IOException
 import java.text.SimpleDateFormat
@@ -41,6 +53,12 @@ class InventoryListFragment : Fragment() {
     private var _binding: FragmentInventoryListBinding? = null
     private val binding get() = _binding!!
 
+    private val requestNotificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ ->
+        // Permission result ignored, we will just try to show the notification
+    }
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -53,121 +71,247 @@ class InventoryListFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+
         setupRecyclerView()
         setupSearch()
         setupFilters()
+        setupFabMenu()
 
-        binding.fab.setOnClickListener {
+        // Handle scanned barcode result
+        findNavController().currentBackStackEntry?.savedStateHandle?.getLiveData<String>("scanned_barcode")
+            ?.observe(viewLifecycleOwner) { barcode ->
+                binding.searchEditText.setText(barcode)
+                Toast.makeText(requireContext(), "Found barcode: $barcode", Toast.LENGTH_SHORT).show()
+            }
+    }
+
+    private var isFabExpanded = false
+
+    private fun setupFabMenu() {
+        binding.mainFab.setOnClickListener {
+            toggleFabMenu()
+        }
+
+        binding.addItemFabSmall.setOnClickListener {
+            toggleFabMenu()
             val bundle = Bundle().apply {
                 putInt("itemId", -1)
+                putString("title", getString(com.jewelrymanager.inventory.R.string.add_item))
             }
             findNavController().navigate(com.jewelrymanager.inventory.R.id.addEditFragment, bundle)
         }
 
-        binding.exportPdfFab.setOnClickListener {
-            viewModel.allItems.value?.let { items ->
-                exportToPdf(items)
-            } ?: run {
-                Toast.makeText(requireContext(), "No items to export", Toast.LENGTH_SHORT).show()
-            }
+        binding.scanBarcodeFabSmall.setOnClickListener {
+            toggleFabMenu()
+            findNavController().navigate(com.jewelrymanager.inventory.R.id.action_inventoryListFragment_to_barcodeScanFragment)
+        }
+
+        binding.exportPdfFabSmall.setOnClickListener {
+            toggleFabMenu()
+            val items = viewModel.allItems.value ?: emptyList()
+            val transactions = viewModel.allTransactions.value ?: emptyList()
+            val totalSales = viewModel.totalSales.value ?: BigDecimal.ZERO
+            exportToPdf(items, transactions, totalSales, "Full_Inventory")
+        }
+
+        binding.exportSalesFabSmall.setOnClickListener {
+            toggleFabMenu()
+            val transactions = (viewModel.allTransactions.value ?: emptyList()).filter { it.type == TransactionType.EXIT }
+            val totalSales = viewModel.totalSales.value ?: BigDecimal.ZERO
+            exportToPdf(emptyList(), transactions, totalSales, "Sales_Report")
         }
     }
 
-    private fun exportToPdf(items: List<JewelryItem>) {
-        val pdfDocument = PdfDocument()
-        val paint = Paint()
-        val titlePaint = Paint()
-
-        val pageWidth = 595
-        val pageHeight = 842
-        val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, 1).create()
-
-        fun drawHeaders(canvas: Canvas, y: Float) {
-            paint.isFakeBoldText = true
-            canvas.drawText("SKU", 50f, y, paint)
-            canvas.drawText("Name", 150f, y, paint)
-            canvas.drawText("Category", 350f, y, paint)
-            canvas.drawText("Qty", 450f, y, paint)
-            canvas.drawText("Price", 500f, y, paint)
-            canvas.drawLine(50f, y + 5f, 550f, y + 5f, paint)
-            paint.isFakeBoldText = false
+    private fun toggleFabMenu() {
+        isFabExpanded = !isFabExpanded
+        if (isFabExpanded) {
+            binding.mainFab.setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
+            binding.addItemOption.visibility = View.VISIBLE
+            binding.scanBarcodeOption.visibility = View.VISIBLE
+            binding.exportPdfOption.visibility = View.VISIBLE
+            binding.exportSalesOption.visibility = View.VISIBLE
+        } else {
+            binding.mainFab.setImageResource(android.R.drawable.ic_input_add)
+            binding.addItemOption.visibility = View.GONE
+            binding.scanBarcodeOption.visibility = View.GONE
+            binding.exportPdfOption.visibility = View.GONE
+            binding.exportSalesOption.visibility = View.GONE
         }
+    }
 
-        var page = pdfDocument.startPage(pageInfo)
-        var canvas = page.canvas
+    private fun exportToPdf(items: List<JewelryItem>, transactions: List<Transaction>, totalSales: BigDecimal, reportNamePrefix: String) {
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.Default) {
+            val pdfDocument = PdfDocument()
+            val paint = Paint()
+            val titlePaint = Paint()
 
-        titlePaint.textSize = 18f
-        titlePaint.isFakeBoldText = true
-        titlePaint.textAlign = Paint.Align.CENTER
-        canvas.drawText("Jewelry Inventory Report", (pageWidth / 2).toFloat(), 50f, titlePaint)
+            val pageWidth = 595
+            val pageHeight = 842
+            val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, 1).create()
 
-        paint.textSize = 12f
-        var currentY = 100f
-        drawHeaders(canvas, currentY)
-        currentY += 30f
+            // Inventory Page (Only if not empty)
+            if (items.isNotEmpty()) {
+                var page = pdfDocument.startPage(pageInfo)
+                var canvas = page.canvas
 
-        for (item in items) {
-            if (currentY > 800) {
-                pdfDocument.finishPage(page)
-                page = pdfDocument.startPage(pageInfo)
-                canvas = page.canvas
-                currentY = 50f
-                drawHeaders(canvas, currentY)
-                currentY += 30f
-            }
+                titlePaint.textSize = 18f
+                titlePaint.isFakeBoldText = true
+                titlePaint.textAlign = Paint.Align.CENTER
+                canvas.drawText("Inventory Report", (pageWidth / 2).toFloat(), 50f, titlePaint)
 
-            canvas.drawText(item.sku, 50f, currentY, paint)
-            val displayName = if (item.name.length > 25) item.name.substring(0, 22) + "..." else item.name
-            canvas.drawText(displayName, 150f, currentY, paint)
-            canvas.drawText(item.category, 350f, currentY, paint)
-            canvas.drawText(item.quantity.toString(), 450f, currentY, paint)
-            canvas.drawText(String.format("$%.2f", item.retailPrice), 500f, currentY, paint)
-
-            currentY += 25f
-        }
-
-        pdfDocument.finishPage(page)
-
-        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-        val fileName = "Jewelry_Inventory_$timeStamp.pdf"
-
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val contentValues = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                    put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                paint.textSize = 12f
+                var currentY = 100f
+                
+                fun drawInventoryHeaders(canvas: Canvas, y: Float) {
+                    paint.isFakeBoldText = true
+                    canvas.drawText("SKU", 50f, y, paint)
+                    canvas.drawText("Name", 150f, y, paint)
+                    canvas.drawText("Category", 350f, y, paint)
+                    canvas.drawText("Qty", 450f, y, paint)
+                    canvas.drawText("Price", 500f, y, paint)
+                    canvas.drawLine(50f, y + 5f, 550f, y + 5f, paint)
+                    paint.isFakeBoldText = false
                 }
 
-                val uri = requireContext().contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
-                uri?.let {
-                    requireContext().contentResolver.openOutputStream(it).use { outputStream ->
-                        pdfDocument.writeTo(outputStream)
+                drawInventoryHeaders(canvas, currentY)
+                currentY += 30f
+
+                for (item in items) {
+                    if (currentY > 800) {
+                        pdfDocument.finishPage(page)
+                        page = pdfDocument.startPage(pageInfo)
+                        canvas = page.canvas
+                        currentY = 50f
+                        drawInventoryHeaders(canvas, currentY)
+                        currentY += 30f
                     }
+
+                    canvas.drawText(item.sku, 50f, currentY, paint)
+                    val displayName = if (item.name.length > 25) item.name.substring(0, 22) + "..." else item.name
+                    canvas.drawText(displayName, 150f, currentY, paint)
+                    canvas.drawText(item.category, 350f, currentY, paint)
+                    canvas.drawText(item.quantity.toString(), 450f, currentY, paint)
+                    canvas.drawText(String.format("$%.2f", item.retailPrice), 500f, currentY, paint)
+
+                    currentY += 25f
+                }
+                pdfDocument.finishPage(page)
+            }
+
+            // Transactions Page
+            if (transactions.isNotEmpty()) {
+                var page = pdfDocument.startPage(pageInfo)
+                var canvas = page.canvas
+                var currentY = 50f
+                
+                titlePaint.textSize = 18f
+                titlePaint.textAlign = Paint.Align.CENTER
+                canvas.drawText(if (items.isEmpty()) "Sales Report" else "Inventory Movements & Sales", (pageWidth / 2).toFloat(), currentY, titlePaint)
+                currentY += 40f
+
+                paint.isFakeBoldText = true
+                canvas.drawText("Total Sales: " + String.format("$%.2f", totalSales), 50f, currentY, paint)
+                currentY += 40f
+
+                fun drawTransactionHeaders(canvas: Canvas, y: Float) {
+                    paint.isFakeBoldText = true
+                    canvas.drawText("Date", 50f, y, paint)
+                    canvas.drawText("SKU", 180f, y, paint)
+                    canvas.drawText("Type", 300f, y, paint)
+                    canvas.drawText("Qty", 400f, y, paint)
+                    canvas.drawText("Value", 480f, y, paint)
+                    canvas.drawLine(50f, y + 5f, 550f, y + 5f, paint)
+                    paint.isFakeBoldText = false
+                }
+
+                drawTransactionHeaders(canvas, currentY)
+                currentY += 30f
+
+                val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+
+                for (tx in transactions) {
+                    if (currentY > 800) {
+                        pdfDocument.finishPage(page)
+                        page = pdfDocument.startPage(pageInfo)
+                        canvas = page.canvas
+                        currentY = 50f
+                        drawTransactionHeaders(canvas, currentY)
+                        currentY += 30f
+                    }
+
+                    canvas.drawText(dateFormat.format(Date(tx.timestamp)), 50f, currentY, paint)
+                    canvas.drawText(tx.sku, 180f, currentY, paint)
+                    canvas.drawText(tx.type.name, 300f, currentY, paint)
+                    canvas.drawText(tx.quantity.toString(), 400f, currentY, paint)
+                    val txValue = tx.priceAtTime.multiply(BigDecimal(tx.quantity))
+                    canvas.drawText(String.format("$%.2f", txValue), 480f, currentY, paint)
+
+                    currentY += 25f
+                }
+                pdfDocument.finishPage(page)
+            }
+
+            val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+            val fileName = "${reportNamePrefix}_$timeStamp.pdf"
+
+            try {
+                withContext(Dispatchers.IO) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        val contentValues = ContentValues().apply {
+                            put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                            put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
+                            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                        }
+
+                        val uri = requireContext().contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                        uri?.let {
+                            requireContext().contentResolver.openOutputStream(it).use { outputStream ->
+                                pdfDocument.writeTo(outputStream)
+                            }
+                            withContext(Dispatchers.Main) {
+                                NotificationHelper.showExportNotification(requireContext(), it, fileName)
+                            }
+                        }
+                    } else {
+                        val filePath = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), fileName)
+                        pdfDocument.writeTo(FileOutputStream(filePath))
+                        withContext(Dispatchers.Main) {
+                            NotificationHelper.showExportNotification(requireContext(), filePath)
+                        }
+                    }
+                }
+                withContext(Dispatchers.Main) {
                     Toast.makeText(requireContext(), getString(com.jewelrymanager.inventory.R.string.pdf_exported), Toast.LENGTH_LONG).show()
                 }
-            } else {
-                val filePath = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), fileName)
-                pdfDocument.writeTo(FileOutputStream(filePath))
-                Toast.makeText(requireContext(), getString(com.jewelrymanager.inventory.R.string.pdf_exported), Toast.LENGTH_LONG).show()
+            } catch (e: IOException) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(requireContext(), getString(com.jewelrymanager.inventory.R.string.pdf_export_failed), Toast.LENGTH_SHORT).show()
+                }
+            } finally {
+                pdfDocument.close()
             }
-        } catch (e: IOException) {
-            e.printStackTrace()
-            Toast.makeText(requireContext(), getString(com.jewelrymanager.inventory.R.string.pdf_export_failed), Toast.LENGTH_SHORT).show()
-        } finally {
-            pdfDocument.close()
         }
     }
 
     private fun setupRecyclerView() {
         val adapter = InventoryAdapter { item ->
             val action = InventoryListFragmentDirections
-                .actionInventoryListFragmentToItemDetailFragment(item.id)
+                .actionInventoryListFragmentToItemDetailFragment(item.sku)
             findNavController().navigate(action)
         }
         binding.recyclerView.adapter = adapter
         viewModel.allItems.observe(viewLifecycleOwner) { items ->
             items.let { adapter.submitList(it) }
+        }
+
+        viewModel.totalSales.observe(viewLifecycleOwner) { sales ->
+            binding.totalSalesText.text = getString(com.jewelrymanager.inventory.R.string.total_sales_label, String.format("$%.2f", sales))
         }
     }
 

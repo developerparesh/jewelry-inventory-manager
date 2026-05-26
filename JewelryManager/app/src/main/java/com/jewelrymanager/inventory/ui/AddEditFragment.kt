@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.navigation.fragment.findNavController
+import androidx.navigation.fragment.navArgs
 import coil.load
 import com.jewelrymanager.inventory.JewelryApplication
 import com.jewelrymanager.inventory.data.JewelryItem
@@ -17,7 +18,7 @@ import java.math.BigDecimal
 
 class AddEditFragment : Fragment() {
 
-    private var itemId: Int = -1
+    private val navigationArgs: AddEditFragmentArgs by navArgs()
     private var item: JewelryItem? = null
     private var selectedImageUri: String? = null
 
@@ -55,9 +56,9 @@ class AddEditFragment : Fragment() {
             selectImageLauncher.launch("image/*")
         }
 
-        itemId = arguments?.getInt("itemId") ?: -1
-        if (itemId != -1) {
-            viewModel.getItem(itemId).observe(this.viewLifecycleOwner) { selectedItem ->
+        val sku = navigationArgs.itemSku
+        if (sku != null) {
+            viewModel.getItem(sku).observe(this.viewLifecycleOwner) { selectedItem ->
                 if (selectedItem != null) {
                     item = selectedItem
                     bind(item!!)
@@ -90,6 +91,7 @@ class AddEditFragment : Fragment() {
             }
             itemName.setText(item.name)
             itemSku.setText(item.sku)
+            itemSku.isEnabled = false // Cannot change primary key
             itemPrice.setText(item.retailPrice.toString())
             itemQuantity.setText(item.quantity.toString())
             itemMetal.setText(item.metal)
@@ -170,7 +172,6 @@ class AddEditFragment : Fragment() {
         binding.apply {
             val price = itemPrice.text.toString().toBigDecimalOrNull() ?: BigDecimal.ZERO
             viewModel.updateItem(
-                itemId,
                 itemSku.text.toString(),
                 itemName.text.toString(),
                 itemCategorySpinner.selectedItem.toString(),
