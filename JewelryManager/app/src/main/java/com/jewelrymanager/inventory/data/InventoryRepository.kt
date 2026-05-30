@@ -1,5 +1,6 @@
 package com.jewelrymanager.inventory.data
 
+import androidx.lifecycle.LiveData
 import kotlinx.coroutines.flow.Flow
 
 class InventoryRepository(private val inventoryDao: InventoryDao) {
@@ -9,6 +10,9 @@ class InventoryRepository(private val inventoryDao: InventoryDao) {
     val allTransactions: Flow<List<Transaction>> = inventoryDao.getAllTransactions()
 
     val totalSales: Flow<java.math.BigDecimal?> = inventoryDao.getTotalSales()
+
+    val allPastCustomers: LiveData<List<String>> = inventoryDao.getAllPastCustomers()
+    val allPastPartners: LiveData<List<String>> = inventoryDao.getAllPastPartners()
 
     fun getItem(sku: String): Flow<JewelryItem?> = inventoryDao.getItem(sku)
 

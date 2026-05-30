@@ -16,5 +16,7 @@ data class Transaction(
     val type: TransactionType,
     val quantity: Int,
     val priceAtTime: BigDecimal,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val partyName: String? = null,
+    val partyPhone: String? = null
 )

@@ -1,5 +1,6 @@
 package com.jewelrymanager.inventory.ui
 
+import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
@@ -11,6 +12,13 @@ import com.jewelrymanager.inventory.databinding.ItemJewelryBinding
 
 class InventoryAdapter(private val onItemClicked: (JewelryItem) -> Unit) :
     ListAdapter<JewelryItem, InventoryAdapter.InventoryViewHolder>(DiffCallback) {
+
+    private var mostSoldSku: String? = null
+
+    fun setMostSoldItemSku(sku: String?) {
+        mostSoldSku = sku
+        notifyDataSetChanged()
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): InventoryViewHolder {
         return InventoryViewHolder(
@@ -27,25 +35,34 @@ class InventoryAdapter(private val onItemClicked: (JewelryItem) -> Unit) :
         holder.itemView.setOnClickListener {
             onItemClicked(current)
         }
-        holder.bind(current)
+
+        holder.bind(current, mostSoldSku)
     }
 
-    class InventoryViewHolder(private var binding: ItemJewelryBinding) :
+    inner class InventoryViewHolder(private var binding: ItemJewelryBinding) :
         RecyclerView.ViewHolder(binding.root) {
 
-        fun bind(item: JewelryItem) {
+        fun bind(item: JewelryItem, currentTopSku: String?) {
             val context = binding.root.context
-            binding.itemName.text = item.name
+
             binding.itemCategory.text = item.category
             binding.itemSku.text = item.sku
             binding.itemPrice.text = context.getString(com.jewelrymanager.inventory.R.string.price_format, item.retailPrice)
             binding.itemQuantity.text = context.getString(com.jewelrymanager.inventory.R.string.quantity_label, item.quantity)
-            
-            // Load image
+
             binding.itemImage.load(item.imageUri) {
                 crossfade(enable = true)
                 placeholder(android.R.drawable.ic_menu_gallery)
                 error(android.R.drawable.ic_menu_report_image)
+            }
+
+
+            if (currentTopSku != null && item.sku == currentTopSku) {
+                binding.cardView.setCardBackgroundColor(Color.parseColor("#FFF9C4"))
+                binding.itemName.text = "🔥 ${item.name} (Top Seller)"
+            } else {
+                binding.cardView.setCardBackgroundColor(Color.WHITE)
+                binding.itemName.text = item.name
             }
 
             if (item.quantity <= 2) {

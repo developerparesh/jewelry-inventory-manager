@@ -100,7 +100,6 @@
         android:orientation="vertical"
         android:visibility="visible">
 
-        <!-- Export PDF Option -->
         <LinearLayout
             android:id="@+id/exportPdfOption"
             android:layout_width="wrap_content"
@@ -131,7 +130,6 @@
                 app:srcCompat="@android:drawable/ic_menu_save" />
         </LinearLayout>
 
-        <!-- Export Sales Option -->
         <LinearLayout
             android:id="@+id/exportSalesOption"
             android:layout_width="wrap_content"
@@ -162,7 +160,6 @@
                 app:srcCompat="@android:drawable/ic_menu_recent_history" />
         </LinearLayout>
 
-        <!-- Scan Barcode Option -->
         <LinearLayout
             android:id="@+id/scanBarcodeOption"
             android:layout_width="wrap_content"
@@ -193,7 +190,6 @@
                 app:srcCompat="@android:drawable/ic_menu_camera" />
         </LinearLayout>
 
-        <!-- Add Item Option -->
         <LinearLayout
             android:id="@+id/addItemOption"
             android:layout_width="wrap_content"
@@ -224,7 +220,6 @@
                 app:srcCompat="@android:drawable/ic_input_add" />
         </LinearLayout>
 
-        <!-- Main FAB -->
         <com.google.android.material.floatingactionbutton.FloatingActionButton
             android:id="@+id/mainFab"
             android:layout_width="wrap_content"

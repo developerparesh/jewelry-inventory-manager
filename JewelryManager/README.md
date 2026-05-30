@@ -5,8 +5,8 @@ A robust Android application for managing jewelry inventory with high-precision 
 ## 🚀 Features
 
 -   **Inventory Management**: Full CRUD operations for jewelry items including categories, metals, carats, and locations.
--   **Barcode Scanner**: Integrated **CameraX** and **Google ML Kit** for rapid item lookup and data entry.
--   **Atomic Upserts**: Intelligent database handling where scanning an existing SKU automatically updates stock instead of creating duplicates.
+-   **Advanced Barcode Scanner**: Integrated **CameraX** and **Google ML Kit**. Supports **Multi-Item Scanning** where multiple barcodes can be scanned sequentially before processing a bulk Entry or Exit transaction.
+-   **Smart Stock Logic**: Automatically detects if a scanned item exists. Prevents stock underflow for sales and provides validation warnings for unregistered items.
 -   **High-Precision Pricing**: Uses `BigDecimal` for all financial calculations to ensure currency integrity.
 -   **Inventory Movements**: Tracks "Entry" (stock in) and "Exit" (sales) transactions for every SKU.
 -   **Sales Reporting**: Real-time calculation of total sales value displayed on the dashboard and included in reports.

@@ -15,7 +15,8 @@ class InventoryViewModel(private val repository: InventoryRepository) : ViewMode
 
     val allTransactions: LiveData<List<Transaction>> = repository.allTransactions.asLiveData()
     val totalSales: LiveData<BigDecimal> = repository.totalSales.map { it ?: BigDecimal.ZERO }.asLiveData()
-
+    val allPastCustomers: LiveData<List<String>> = repository.allPastCustomers
+    val allPastPartners: LiveData<List<String>> = repository.allPastPartners
     private val searchQuery = MutableStateFlow("")
     private val categoryFilter = MutableStateFlow("All")
     private val sortOrder = MutableStateFlow("Name (A-Z)")
@@ -158,7 +159,6 @@ class InventoryViewModel(private val repository: InventoryRepository) : ViewMode
         viewModelScope.launch {
             val item = repository.getItemSingle(sku) ?: return@launch
             
-            // Record the transaction
             val transaction = Transaction(
                 sku = sku,
                 type = type,
@@ -167,13 +167,53 @@ class InventoryViewModel(private val repository: InventoryRepository) : ViewMode
             )
             repository.insertTransaction(transaction)
 
-            // Update item quantity
             val newQuantity = if (type == TransactionType.ENTRY) {
                 item.quantity + quantity
             } else {
                 (item.quantity - quantity).coerceAtLeast(0)
             }
             
+            val updatedItem = item.copy(quantity = newQuantity)
+            repository.updateItem(updatedItem)
+        }
+    }
+    fun performSaleTransaction(sku: String, quantity: Int, customerName: String? = null, customerPhone: String? = null) {
+        viewModelScope.launch {
+            val item = repository.getItemSingle(sku) ?: return@launch
+
+            val transaction = Transaction(
+                sku = sku,
+                type = TransactionType.EXIT,
+                quantity = quantity,
+                timestamp = System.currentTimeMillis(),
+                priceAtTime = item.retailPrice,
+                partyName = customerName,
+                partyPhone = customerPhone
+            )
+            repository.insertTransaction(transaction)
+
+            val newQuantity = (item.quantity - quantity).coerceAtLeast(0)
+            val updatedItem = item.copy(quantity = newQuantity)
+            repository.updateItem(updatedItem)
+        }
+    }
+
+    fun performPurchaseTransaction(sku: String, quantity: Int, vendorName: String? = null, vendorPhone: String? = null) {
+        viewModelScope.launch {
+            val item = repository.getItemSingle(sku) ?: return@launch
+
+            val transaction = Transaction(
+                sku = sku,
+                type = TransactionType.ENTRY,
+                quantity = quantity,
+                timestamp = System.currentTimeMillis(),
+                priceAtTime = item.costPrice,
+                partyName = vendorName,
+                partyPhone = vendorPhone
+            )
+            repository.insertTransaction(transaction)
+
+            val newQuantity = item.quantity + quantity
             val updatedItem = item.copy(quantity = newQuantity)
             repository.updateItem(updatedItem)
         }

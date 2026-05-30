@@ -91,7 +91,7 @@ class AddEditFragment : Fragment() {
             }
             itemName.setText(item.name)
             itemSku.setText(item.sku)
-            itemSku.isEnabled = false // Cannot change primary key
+            itemSku.isEnabled = false 
             itemPrice.setText(item.retailPrice.toString())
             itemQuantity.setText(item.quantity.toString())
             itemMetal.setText(item.metal)
@@ -158,7 +158,7 @@ class AddEditFragment : Fragment() {
                 itemMetal.text.toString(),
                 itemCarat.text.toString().toDoubleOrNull(),
                 itemQuantity.text.toString().toIntOrNull() ?: 0,
-                price.multiply(BigDecimal("0.7")), // Dummy cost price
+                price.multiply(BigDecimal("0.7")), 
                 price,
                 itemLocation.text.toString(),
                 itemNotes.text.toString(),
@@ -178,7 +178,7 @@ class AddEditFragment : Fragment() {
                 itemMetal.text.toString(),
                 itemCarat.text.toString().toDoubleOrNull(),
                 itemQuantity.text.toString().toIntOrNull() ?: 0,
-                price.multiply(BigDecimal("0.7")), // Dummy cost price
+                price.multiply(BigDecimal("0.7")), 
                 price,
                 itemLocation.text.toString(),
                 itemNotes.text.toString(),

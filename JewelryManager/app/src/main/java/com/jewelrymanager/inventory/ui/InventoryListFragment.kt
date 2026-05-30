@@ -17,6 +17,7 @@ import androidx.core.content.ContextCompat
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.LinearLayout
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Toast
@@ -25,6 +26,7 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.jewelrymanager.inventory.JewelryApplication
 import com.jewelrymanager.inventory.data.JewelryItem
 import com.jewelrymanager.inventory.data.Transaction
@@ -53,16 +55,22 @@ class InventoryListFragment : Fragment() {
     private var _binding: FragmentInventoryListBinding? = null
     private val binding get() = _binding!!
 
-    private val requestNotificationPermissionLauncher = registerForActivityResult(
+    private var currentItemsList: List<JewelryItem> = emptyList()
+    private var currentTransactionsList: List<Transaction> = emptyList()
+
+    private lateinit var inventoryAdapter: InventoryAdapter
+    private var isFabExpanded = false
+
+    private val requestNotificationPermissionLauncher = registerResultLauncher()
+
+    private fun registerResultLauncher() = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { _ ->
-        // Permission result ignored, we will just try to show the notification
-    }
+    ) { _ -> }
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
-        savedInstanceState: Bundle?
+        savedInstanceState: Bundle?,
     ): View {
         _binding = FragmentInventoryListBinding.inflate(inflater, container, false)
         return binding.root
@@ -72,17 +80,45 @@ class InventoryListFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            if (ContextCompat.checkSelfPermission(
+                    requireContext(),
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
                 requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
 
         setupRecyclerView()
+
+        viewModel.allItems.observe(viewLifecycleOwner) { items ->
+            currentItemsList = items ?: emptyList()
+            inventoryAdapter.submitList(currentItemsList) {
+                binding.recyclerView.scrollToPosition(0)
+            }
+        }
+
+        viewModel.allTransactions.observe(viewLifecycleOwner) { transactions ->
+            currentTransactionsList = transactions ?: emptyList()
+
+            val currentMonth = java.util.Calendar.getInstance().get(java.util.Calendar.MONTH)
+            val salesThisMonth = currentTransactionsList.filter { tx ->
+                tx.type == TransactionType.EXIT &&
+                        java.util.Calendar.getInstance().apply { timeInMillis = tx.timestamp }
+                            .get(java.util.Calendar.MONTH) == currentMonth
+            }
+
+            val topSellingSku = salesThisMonth
+                .groupBy { it.sku }
+                .maxByOrNull { group -> group.value.sumOf { it.quantity } }?.key
+
+            inventoryAdapter.setMostSoldItemSku(topSellingSku)
+        }
+
         setupSearch()
         setupFilters()
         setupFabMenu()
 
-        // Handle scanned barcode result
         findNavController().currentBackStackEntry?.savedStateHandle?.getLiveData<String>("scanned_barcode")
             ?.observe(viewLifecycleOwner) { barcode ->
                 binding.searchEditText.setText(barcode)
@@ -90,7 +126,21 @@ class InventoryListFragment : Fragment() {
             }
     }
 
-    private var isFabExpanded = false
+    private fun setupRecyclerView() {
+        inventoryAdapter = InventoryAdapter { item ->
+            val action = InventoryListFragmentDirections
+                .actionInventoryListFragmentToItemDetailFragment(item.sku)
+            findNavController().navigate(action)
+        }
+        binding.recyclerView.adapter = inventoryAdapter
+
+        viewModel.totalSales.observe(viewLifecycleOwner) { sales ->
+            binding.totalSalesText.text = getString(
+                com.jewelrymanager.inventory.R.string.total_sales_label,
+                String.format("$%.2f", sales ?: BigDecimal.ZERO)
+            )
+        }
+    }
 
     private fun setupFabMenu() {
         binding.mainFab.setOnClickListener {
@@ -113,18 +163,126 @@ class InventoryListFragment : Fragment() {
 
         binding.exportPdfFabSmall.setOnClickListener {
             toggleFabMenu()
-            val items = viewModel.allItems.value ?: emptyList()
-            val transactions = viewModel.allTransactions.value ?: emptyList()
             val totalSales = viewModel.totalSales.value ?: BigDecimal.ZERO
-            exportToPdf(items, transactions, totalSales, "Full_Inventory")
+
+            if (currentItemsList.isEmpty() && currentTransactionsList.isEmpty()) {
+                Toast.makeText(requireContext(), "No data available to export", Toast.LENGTH_SHORT).show()
+            } else {
+                exportToPdf(currentItemsList, currentTransactionsList, totalSales, "Full_Inventory")
+            }
         }
 
         binding.exportSalesFabSmall.setOnClickListener {
             toggleFabMenu()
-            val transactions = (viewModel.allTransactions.value ?: emptyList()).filter { it.type == TransactionType.EXIT }
-            val totalSales = viewModel.totalSales.value ?: BigDecimal.ZERO
-            exportToPdf(emptyList(), transactions, totalSales, "Sales_Report")
+            openCustomReportDialog()
         }
+    }
+
+    private fun openCustomReportDialog() {
+        val context = requireContext()
+        val mainContainer = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(50, 40, 50, 40)
+        }
+
+        val tvTypeLabel = android.widget.TextView(context).apply {
+            text = "Select Report Type:"
+            textSize = 14f
+            setPadding(0, 0, 0, 10)
+        }
+        mainContainer.addView(tvTypeLabel)
+
+        val reportOptions = arrayOf("Sales Report (EXIT) 📄", "Purchase Report (ENTRY) 📦")
+        var selectedReportTypeIndex = 0
+
+
+        val btnSelectDateRange = com.google.android.material.button.MaterialButton(context).apply {
+            text = "Select Date Range 📅"
+            icon = ContextCompat.getDrawable(context, android.R.drawable.ic_menu_my_calendar)
+
+            setBackgroundColor(Color.TRANSPARENT) 
+            strokeWidth = 3 
+            strokeColor = android.content.res.ColorStateList.valueOf(Color.parseColor("#6750A4")) 
+
+            setTextColor(Color.parseColor("#6750A4"))
+            iconTint = android.content.res.ColorStateList.valueOf(Color.parseColor("#6750A4"))
+
+            cornerRadius = 20
+
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 20, 0, 20)
+            }
+        }
+
+        val tvSelectedDates = android.widget.TextView(context).apply {
+            text = "All Time (No Date Filter)"
+            textSize = 13f
+            setPadding(10, 10, 0, 20)
+            setTextColor(Color.GRAY)
+        }
+
+        mainContainer.addView(btnSelectDateRange)
+        mainContainer.addView(tvSelectedDates)
+
+        var startTimestamp: Long? = null
+        var endTimestamp: Long? = null
+
+        btnSelectDateRange.setOnClickListener {
+            val dateRangePicker = com.google.android.material.datepicker.MaterialDatePicker.Builder.dateRangePicker()
+                .setTitleText("Select Report Period")
+                .build()
+
+            dateRangePicker.addOnPositiveButtonClickListener { selection ->
+                startTimestamp = selection.first
+                endTimestamp = selection.second?.plus(86399000L)
+
+                val sdf = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
+                val startDateStr = sdf.format(Date(startTimestamp!!))
+                val endDateStr = sdf.format(Date(endTimestamp!!))
+                tvSelectedDates.text = "Period: $startDateStr to $endDateStr"
+            }
+            dateRangePicker.show(childFragmentManager, "DATE_RANGE_PICKER")
+        }
+
+        MaterialAlertDialogBuilder(context)
+            .setTitle("Export Custom Report 📊")
+            .setView(mainContainer)
+            .setSingleChoiceItems(reportOptions, 0) { _, which ->
+                selectedReportTypeIndex = which
+            }
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Export PDF") { dialog, _ ->
+                val targetType = if (selectedReportTypeIndex == 0) TransactionType.EXIT else TransactionType.ENTRY
+                val reportName = if (selectedReportTypeIndex == 0) "Sales_Report" else "Purchase_Report"
+
+                val filteredTransactions = currentTransactionsList.filter { tx ->
+                    val matchesType = tx.type == targetType
+                    val matchesDate = if (startTimestamp != null && endTimestamp != null) {
+                        tx.timestamp in startTimestamp!!..endTimestamp!!
+                    } else {
+                        true
+                    }
+                    matchesType && matchesDate
+                }
+
+                if (filteredTransactions.isEmpty()) {
+                    Toast.makeText(context, "No transactions found for the selected criteria", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+
+                var totalCalculatedAmount = BigDecimal.ZERO
+                for (tx in filteredTransactions) {
+                    val itemTotal = tx.priceAtTime.multiply(BigDecimal.valueOf(tx.quantity.toLong()))
+                    totalCalculatedAmount = totalCalculatedAmount.add(itemTotal)
+                }
+
+                exportToPdf(emptyList(), filteredTransactions, totalCalculatedAmount, reportName)
+                dialog.dismiss()
+            }
+            .show()
     }
 
     private fun toggleFabMenu() {
@@ -144,117 +302,141 @@ class InventoryListFragment : Fragment() {
         }
     }
 
-    private fun exportToPdf(items: List<JewelryItem>, transactions: List<Transaction>, totalSales: BigDecimal, reportNamePrefix: String) {
+    private fun exportToPdf(
+        items: List<JewelryItem>,
+        transactions: List<Transaction>,
+        totalSales: BigDecimal,
+        reportNamePrefix: String,
+    ) {
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.Default) {
             val pdfDocument = PdfDocument()
             val paint = Paint()
             val titlePaint = Paint()
+            val metaPaint = Paint()
 
             val pageWidth = 595
             val pageHeight = 842
             val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, 1).create()
 
-            // Inventory Page (Only if not empty)
+            val todayDate = SimpleDateFormat("dd-MM-yyyy", Locale.getDefault()).format(Date())
+            val sharedPref = requireContext().getSharedPreferences("ReportPrefs", android.content.Context.MODE_PRIVATE)
+            val currentCount = sharedPref.getInt("${reportNamePrefix}_count", 0) + 1
+            sharedPref.edit().putInt("${reportNamePrefix}_count", currentCount).apply()
+
+            val metaTextDate = "Date: $todayDate"
+            val metaTextCount = "Download Count: #$currentCount"
+
+            var currentPage: PdfDocument.Page? = null
+            var canvas: Canvas? = null
+            var currentY = 50f
+
+            fun startNewPdfPage(title: String?) {
+                currentPage?.let { pdfDocument.finishPage(it) }
+
+                val newPage = pdfDocument.startPage(pageInfo)
+                currentPage = newPage
+                canvas = newPage.canvas
+                currentY = 50f
+
+                metaPaint.textSize = 10f
+                metaPaint.color = android.graphics.Color.GRAY
+                metaPaint.textAlign = Paint.Align.RIGHT
+                canvas?.drawText(metaTextDate, 550f, 30f, metaPaint)
+                canvas?.drawText(metaTextCount, 550f, 45f, metaPaint)
+
+                title?.let {
+                    titlePaint.textSize = 18f
+                    titlePaint.isFakeBoldText = true
+                    titlePaint.textAlign = Paint.Align.CENTER
+                    canvas?.drawText(it, (pageWidth / 2).toFloat(), 70f, titlePaint)
+                    currentY = 110f
+                }
+            }
+
             if (items.isNotEmpty()) {
-                var page = pdfDocument.startPage(pageInfo)
-                var canvas = page.canvas
+                startNewPdfPage("Inventory Report")
 
-                titlePaint.textSize = 18f
-                titlePaint.isFakeBoldText = true
-                titlePaint.textAlign = Paint.Align.CENTER
-                canvas.drawText("Inventory Report", (pageWidth / 2).toFloat(), 50f, titlePaint)
-
-                paint.textSize = 12f
-                var currentY = 100f
-                
-                fun drawInventoryHeaders(canvas: Canvas, y: Float) {
+                fun drawInventoryHeaders(targetCanvas: Canvas, y: Float) {
                     paint.isFakeBoldText = true
-                    canvas.drawText("SKU", 50f, y, paint)
-                    canvas.drawText("Name", 150f, y, paint)
-                    canvas.drawText("Category", 350f, y, paint)
-                    canvas.drawText("Qty", 450f, y, paint)
-                    canvas.drawText("Price", 500f, y, paint)
-                    canvas.drawLine(50f, y + 5f, 550f, y + 5f, paint)
+                    targetCanvas.drawText("SKU", 50f, y, paint)
+                    targetCanvas.drawText("Name", 150f, y, paint)
+                    targetCanvas.drawText("Category", 350f, y, paint)
+                    targetCanvas.drawText("Qty", 450f, y, paint)
+                    targetCanvas.drawText("Price", 500f, y, paint)
+                    targetCanvas.drawLine(50f, y + 5f, 550f, y + 5f, paint)
                     paint.isFakeBoldText = false
                 }
 
-                drawInventoryHeaders(canvas, currentY)
+                canvas?.let { drawInventoryHeaders(it, currentY) }
                 currentY += 30f
 
                 for (item in items) {
-                    if (currentY > 800) {
-                        pdfDocument.finishPage(page)
-                        page = pdfDocument.startPage(pageInfo)
-                        canvas = page.canvas
-                        currentY = 50f
-                        drawInventoryHeaders(canvas, currentY)
+                    if (currentY > 750) {
+                        startNewPdfPage(null)
+                        canvas?.let { drawInventoryHeaders(it, currentY) }
                         currentY += 30f
                     }
 
-                    canvas.drawText(item.sku, 50f, currentY, paint)
-                    val displayName = if (item.name.length > 25) item.name.substring(0, 22) + "..." else item.name
-                    canvas.drawText(displayName, 150f, currentY, paint)
-                    canvas.drawText(item.category, 350f, currentY, paint)
-                    canvas.drawText(item.quantity.toString(), 450f, currentY, paint)
-                    canvas.drawText(String.format("$%.2f", item.retailPrice), 500f, currentY, paint)
+                    canvas?.drawText(item.sku, 50f, currentY, paint)
+                    val displayName = if (item.name.length > 22) item.name.substring(0, 19) + "..." else item.name
+                    canvas?.drawText(displayName, 150f, currentY, paint)
+                    canvas?.drawText(item.category, 350f, currentY, paint)
+                    canvas?.drawText(item.quantity.toString(), 450f, currentY, paint)
+                    canvas?.drawText(String.format("$%.2f", item.retailPrice), 500f, currentY, paint)
 
                     currentY += 25f
                 }
-                pdfDocument.finishPage(page)
             }
 
-            // Transactions Page
             if (transactions.isNotEmpty()) {
-                var page = pdfDocument.startPage(pageInfo)
-                var canvas = page.canvas
-                var currentY = 50f
-                
-                titlePaint.textSize = 18f
-                titlePaint.textAlign = Paint.Align.CENTER
-                canvas.drawText(if (items.isEmpty()) "Sales Report" else "Inventory Movements & Sales", (pageWidth / 2).toFloat(), currentY, titlePaint)
-                currentY += 40f
+                val sectionTitle = if (items.isEmpty()) {
+                    if (reportNamePrefix.contains("Sales")) "Sales Report (EXIT)" else "Purchase Report (ENTRY)"
+                } else {
+                    "Inventory Movements"
+                }
+
+                startNewPdfPage(sectionTitle)
 
                 paint.isFakeBoldText = true
-                canvas.drawText("Total Sales: " + String.format("$%.2f", totalSales), 50f, currentY, paint)
+                paint.textSize = 12f
+                canvas?.drawText("Total Value: " + String.format("$%.2f", totalSales), 50f, currentY, paint)
                 currentY += 40f
 
-                fun drawTransactionHeaders(canvas: Canvas, y: Float) {
+                fun drawTransactionHeaders(targetCanvas: Canvas, y: Float) {
                     paint.isFakeBoldText = true
-                    canvas.drawText("Date", 50f, y, paint)
-                    canvas.drawText("SKU", 180f, y, paint)
-                    canvas.drawText("Type", 300f, y, paint)
-                    canvas.drawText("Qty", 400f, y, paint)
-                    canvas.drawText("Value", 480f, y, paint)
-                    canvas.drawLine(50f, y + 5f, 550f, y + 5f, paint)
+                    targetCanvas.drawText("Date", 50f, y, paint)
+                    targetCanvas.drawText("SKU", 180f, y, paint)
+                    targetCanvas.drawText("Type", 300f, y, paint)
+                    targetCanvas.drawText("Qty", 400f, y, paint)
+                    targetCanvas.drawText("Value", 480f, y, paint)
+                    targetCanvas.drawLine(50f, y + 5f, 550f, y + 5f, paint)
                     paint.isFakeBoldText = false
                 }
 
-                drawTransactionHeaders(canvas, currentY)
+                canvas?.let { drawTransactionHeaders(it, currentY) }
                 currentY += 30f
 
                 val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
 
                 for (tx in transactions) {
-                    if (currentY > 800) {
-                        pdfDocument.finishPage(page)
-                        page = pdfDocument.startPage(pageInfo)
-                        canvas = page.canvas
-                        currentY = 50f
-                        drawTransactionHeaders(canvas, currentY)
+                    if (currentY > 750) {
+                        startNewPdfPage(null)
+                        canvas?.let { drawTransactionHeaders(it, currentY) }
                         currentY += 30f
                     }
 
-                    canvas.drawText(dateFormat.format(Date(tx.timestamp)), 50f, currentY, paint)
-                    canvas.drawText(tx.sku, 180f, currentY, paint)
-                    canvas.drawText(tx.type.name, 300f, currentY, paint)
-                    canvas.drawText(tx.quantity.toString(), 400f, currentY, paint)
+                    canvas?.drawText(dateFormat.format(Date(tx.timestamp)), 50f, currentY, paint)
+                    canvas?.drawText(tx.sku, 180f, currentY, paint)
+                    canvas?.drawText(tx.type.name, 300f, currentY, paint)
+                    canvas?.drawText(tx.quantity.toString(), 400f, currentY, paint)
                     val txValue = tx.priceAtTime.multiply(BigDecimal(tx.quantity))
-                    canvas.drawText(String.format("$%.2f", txValue), 480f, currentY, paint)
+                    canvas?.drawText(String.format("$%.2f", txValue), 480f, currentY, paint)
 
                     currentY += 25f
                 }
-                pdfDocument.finishPage(page)
             }
+
+            currentPage?.let { pdfDocument.finishPage(it) }
 
             val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
             val fileName = "${reportNamePrefix}_$timeStamp.pdf"
@@ -269,17 +451,17 @@ class InventoryListFragment : Fragment() {
                         }
 
                         val uri = requireContext().contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
-                        uri?.let {
-                            requireContext().contentResolver.openOutputStream(it).use { outputStream ->
+                        uri?.let { targetUri ->
+                            requireContext().contentResolver.openOutputStream(targetUri).use { outputStream ->
                                 pdfDocument.writeTo(outputStream)
                             }
                             withContext(Dispatchers.Main) {
-                                NotificationHelper.showExportNotification(requireContext(), it, fileName)
+                                NotificationHelper.showExportNotification(requireContext(), targetUri, fileName)
                             }
                         }
                     } else {
                         val filePath = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), fileName)
-                        pdfDocument.writeTo(FileOutputStream(filePath))
+                        FileOutputStream(filePath).use { outputStream -> pdfDocument.writeTo(outputStream) }
                         withContext(Dispatchers.Main) {
                             NotificationHelper.showExportNotification(requireContext(), filePath)
                         }
@@ -290,28 +472,9 @@ class InventoryListFragment : Fragment() {
                 }
             } catch (e: IOException) {
                 e.printStackTrace()
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(requireContext(), getString(com.jewelrymanager.inventory.R.string.pdf_export_failed), Toast.LENGTH_SHORT).show()
-                }
             } finally {
                 pdfDocument.close()
             }
-        }
-    }
-
-    private fun setupRecyclerView() {
-        val adapter = InventoryAdapter { item ->
-            val action = InventoryListFragmentDirections
-                .actionInventoryListFragmentToItemDetailFragment(item.sku)
-            findNavController().navigate(action)
-        }
-        binding.recyclerView.adapter = adapter
-        viewModel.allItems.observe(viewLifecycleOwner) { items ->
-            items.let { adapter.submitList(it) }
-        }
-
-        viewModel.totalSales.observe(viewLifecycleOwner) { sales ->
-            binding.totalSalesText.text = getString(com.jewelrymanager.inventory.R.string.total_sales_label, String.format("$%.2f", sales))
         }
     }
 
@@ -326,7 +489,6 @@ class InventoryListFragment : Fragment() {
     }
 
     private fun setupFilters() {
-        // Category Filter
         val categories = resources.getStringArray(com.jewelrymanager.inventory.R.array.jewelry_categories)
         val categoryAdapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_item, categories)
         categoryAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
@@ -338,7 +500,6 @@ class InventoryListFragment : Fragment() {
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
-        // Special Filter (Low Stock / High Selling)
         val specialFilters = resources.getStringArray(com.jewelrymanager.inventory.R.array.special_filters)
         val specialAdapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_item, specialFilters)
         specialAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
@@ -355,7 +516,6 @@ class InventoryListFragment : Fragment() {
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
-        // Sort Spinner
         val sortOptions = resources.getStringArray(com.jewelrymanager.inventory.R.array.sort_options)
         val sortAdapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_item, sortOptions)
         sortAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)

@@ -1,5 +1,6 @@
 package com.jewelrymanager.inventory.data
 
+import androidx.lifecycle.LiveData
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 import java.math.BigDecimal
@@ -35,4 +36,10 @@ interface InventoryDao {
 
     @Query("SELECT SUM(quantity * priceAtTime) FROM transactions WHERE type = 'EXIT'")
     fun getTotalSales(): Flow<BigDecimal?>
+
+    @Query("SELECT DISTINCT partyName || ' (' || partyPhone || ')' FROM transactions WHERE type = 'EXIT' AND partyName IS NOT NULL AND partyName != 'Walk-in Customer'")
+    fun getAllPastCustomers(): LiveData<List<String>>
+
+    @Query("SELECT DISTINCT partyName || ' (' || partyPhone || ')' FROM transactions WHERE partyName IS NOT NULL AND partyName != 'Walk-in Customer' AND partyName != 'Regular Vendor' AND partyPhone != 'N/A'")
+    fun getAllPastPartners(): LiveData<List<String>>
 }
